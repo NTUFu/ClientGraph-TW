@@ -174,9 +174,12 @@
 2. SAD。
 3. 資料字典。
 4. Code Style Guide。
-5. Loop Review 紀錄。
-6. UAT 腳本與結果。
-7. 上線手冊。
+5. EditorConfig。
+6. ESLint 設定。
+7. Prettier 設定。
+8. Loop Review 紀錄。
+9. UAT 腳本與結果。
+10. 上線手冊。
 
 **下一步**
 1. 先執行 Loop 0，凍結資料契約與 edgeKey 規格。
