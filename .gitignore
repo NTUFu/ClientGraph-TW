@@ -1,0 +1,7 @@
+node_modules/
+.npm_cache/
+.DS_Store
+dist/
+.vscode/
+.idea/
+*.log
