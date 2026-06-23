@@ -4,7 +4,9 @@ import { parseCSV, cleanAndStandardize } from '../src/utils/parser.js';
 describe('Parser and Cleaner Tests', () => {
   describe('parseCSV()', () => {
     it('should parse standard CSV text to flat array of objects', () => {
-      const csv = `姓名,公司代號,職稱,資料年月,公司名稱\n張安平,1101,董事長,11504,台泥\n程耀輝,1101,董事,11504,台泥`;
+      const csv = `姓名,公司代號,職稱,資料年月,公司名稱
+張安平,1101,董事長,11504,台泥
+程耀輝,1101,董事,11504,台泥`;
       const result = parseCSV(csv);
       expect(result).toHaveLength(2);
       expect(result[0]).toEqual({
@@ -17,7 +19,8 @@ describe('Parser and Cleaner Tests', () => {
     });
 
     it('should handle quoted fields with commas and double quotes', () => {
-      const csv = `姓名,公司代號,職稱,選任時持股\n"張 ""安"" 平",1101,董事長,"3,000"`;
+      const csv = `姓名,公司代號,職稱,選任時持股
+"張 ""安"" 平",1101,董事長,"3,000"`;
       const result = parseCSV(csv);
       expect(result).toHaveLength(1);
       expect(result[0]).toEqual({
@@ -138,9 +141,8 @@ describe('Parser and Cleaner Tests', () => {
       expect(records).toHaveLength(2);
 
       const corp = records[0];
-      const rep = records[1];
-
       expect(corp.representedBy).toBe('');
+      const rep = records[1];
       expect(rep.representativeFor).toBe('');
     });
   });

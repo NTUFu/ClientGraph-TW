@@ -5,19 +5,18 @@ import { generateEdgeKey, generatePersonNodeKey, normalize } from './keys.js';
  */
 
 /**
- * Simple, robust CSV parser.
- * Handles quoted fields, escaped double quotes, and CRLF/LF line endings.
+ * Generator that parses CSV text line by line.
  * 
  * @param {string} csvText - The raw CSV string.
- * @returns {Array<Object>} Array of flat objects.
+ * *yields* {Array<string>} Each yielded array represents a row of raw values.
  */
-export function parseCSV(csvText) {
-  if (!csvText) return [];
+export function* parseCSVGenerator(csvText) {
+  if (!csvText) return;
   
-  const result = [];
   let row = [''];
-  const rows = [row];
   let inQuote = false;
+  const LF = String.fromCharCode(10);
+  const CR = String.fromCharCode(13);
   
   for (let i = 0; i < csvText.length; i++) {
     const char = csvText[i];
@@ -32,22 +31,39 @@ export function parseCSV(csvText) {
       }
     } else if (char === ',' && !inQuote) {
       row.push('');
-    } else if ((char === '\r' || char === '\n') && !inQuote) {
-      if (char === '\r' && nextChar === '\n') {
+    } else if ((char === LF || char === CR) && !inQuote) {
+      if (char === CR && nextChar === LF) {
         i++;
       }
+      yield row;
       row = [''];
-      rows.push(row);
     } else {
       row[row.length - 1] += char;
     }
   }
   
+  // Final row
+  if (row.length > 1 || (row.length === 1 && row[0] !== '')) {
+    yield row;
+  }
+}
+
+/**
+ * Simple, robust CSV parser.
+ * 
+ * @param {string} csvText - The raw CSV string.
+ * @returns {Array<Object>} Array of flat objects.
+ */
+export function parseCSV(csvText) {
+  const allRows = Array.from(parseCSVGenerator(csvText));
+  if (allRows.length === 0) return [];
+  
   // Filter out completely empty rows
-  const nonArr = rows.filter(r => r.length > 1 || (r.length === 1 && r[0] !== ''));
+  const nonArr = allRows.filter(r => r.length > 1 || (r.length === 1 && r[0] !== ''));
   if (nonArr.length === 0) return [];
   
   const headers = nonArr[0].map(h => h.trim());
+  const result = [];
   
   for (let i = 1; i < nonArr.length; i++) {
     const values = nonArr[i];
@@ -62,38 +78,23 @@ export function parseCSV(csvText) {
 }
 
 /**
- * Cleans and standardizes raw flat records into Edge objects with keys.
- * Correctly pairs Principal (本人) and Representative (法人代表人) records if sequentially adjacent.
+ * Generator that cleans and standardizes raw flat records into Edge objects with keys.
  * 
- * @param {Array<Object>} rawRecords - The raw input array of records.
+ * @param {Iterable<Object>} rawRecordsIterable - An iterable of raw record objects.
  * @param {string} sourceType - Default source identifier ('上市', '上櫃', 'unknown').
- * @returns {{ records: Array<Object>, errors: Array<Object> }} Cleaned records and descriptive errors.
+ * *yields* {Object|null, Object|null} A tuple of [record, error].
  */
-export function cleanAndStandardize(rawRecords, sourceType = 'unknown') {
-  if (!Array.isArray(rawRecords)) {
-    return {
-      records: [],
-      errors: [{ row: 0, reason: '輸入資料格式不正確，預期為陣列。' }]
-    };
-  }
-  
-  const records = [];
-  const errors = [];
+export function* cleanAndStandardizeGenerator(rawRecordsIterable, sourceType = 'unknown') {
   const importedAt = new Date().toISOString();
-  
-  // Map to remember corporate principals by: companyCode + '|' + baseTitle
   const lastPrincipalMap = new Map();
   
-  for (let i = 0; i < rawRecords.length; i++) {
-    const raw = rawRecords[i];
-    const rowNum = i + 1; // 1-based index for end-user visibility
+  let rowNum = 0;
+  
+  for (const raw of rawRecordsIterable) {
+    rowNum++;
     
     if (!raw || typeof raw !== 'object') {
-      errors.push({
-        row: rowNum,
-        reason: '資料列非有效物件。',
-        raw
-      });
+      yield [null, { row: rowNum, reason: '資料列非有效物件。', raw }];
       continue;
     }
     
@@ -110,11 +111,7 @@ export function cleanAndStandardize(rawRecords, sourceType = 'unknown') {
     if (rawDataMonth === undefined || rawDataMonth === null || String(rawDataMonth).trim() === '') missing.push('資料年月');
     
     if (missing.length > 0) {
-      errors.push({
-        row: rowNum,
-        reason: `缺少必要欄位: ${missing.join(', ')}`,
-        raw
-      });
+      yield [null, { row: rowNum, reason: `缺少必要欄位: ${missing.join(', ')}`, raw }];
       continue;
     }
     
@@ -130,20 +127,14 @@ export function cleanAndStandardize(rawRecords, sourceType = 'unknown') {
       if (!title) invalid.push('職稱');
       if (!dataYearMonth) invalid.push('資料年月');
       
-      errors.push({
-        row: rowNum,
-        reason: `缺少必要欄位: ${invalid.join(', ')}`,
-        raw
-      });
+      yield [null, { row: rowNum, reason: `缺少必要欄位: ${invalid.join(', ')}`, raw }];
       continue;
     }
     
-    // Generate derived keys and fields
     const edgeKey = generateEdgeKey(name, companyCode, title);
     const personNodeKey = generatePersonNodeKey(name, companyCode);
     const companyName = normalize(raw['公司名稱']);
     
-    // Construct search index text
     const searchTerms = [name, companyCode, companyName, title].filter(Boolean);
     const normalizedSearch = searchTerms.join(' ');
     
@@ -154,7 +145,6 @@ export function cleanAndStandardize(rawRecords, sourceType = 'unknown') {
       sourceType,
       importedAt,
       
-      // Preserve original Taiwan government fields
       出表日期: normalize(raw['出表日期']),
       資料年月: dataYearMonth,
       公司代號: companyCode,
@@ -175,7 +165,6 @@ export function cleanAndStandardize(rawRecords, sourceType = 'unknown') {
       representativeFor: ''
     };
     
-    // Perform Principal-Representative mapping
     let baseTitle = '';
     if (record.isPrincipal) {
       baseTitle = title.slice(0, -2);
@@ -196,7 +185,31 @@ export function cleanAndStandardize(rawRecords, sourceType = 'unknown') {
       }
     }
     
-    records.push(record);
+    yield [record, null];
+  }
+}
+
+/**
+ * Cleans and standardizes raw flat records into Edge objects with keys.
+ * 
+ * @param {Array<Object>} rawRecords - The raw input array of records.
+ * @param {string} sourceType - Default source identifier ('上市', '上櫃', 'unknown').
+ * @returns {{ records: Array<Object>, errors: Array<Object> }} Cleaned records and descriptive errors.
+ */
+export function cleanAndStandardize(rawRecords, sourceType = 'unknown') {
+  if (!Array.isArray(rawRecords)) {
+    return {
+      records: [],
+      errors: [{ row: 0, reason: '輸入資料格式不正確，預期為陣列。' }]
+    };
+  }
+  
+  const records = [];
+  const errors = [];
+  
+  for (const [record, error] of cleanAndStandardizeGenerator(rawRecords, sourceType)) {
+    if (record) records.push(record);
+    if (error) errors.push(error);
   }
   
   return { records, errors };
