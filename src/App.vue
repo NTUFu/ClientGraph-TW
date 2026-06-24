@@ -5,6 +5,8 @@ import ImportModal from './components/ImportModal.vue';
 import { openDB, getMetadata, getRecordsByKeyword, getRecordsByNames, getRelationshipsCount, clearDatabase } from './utils/db.js';
 import { transformRecordsToElements } from './utils/graph-transformer.js';
 import { ImportService } from './utils/import-service.js';
+import { selectPrimaryRecordsByMaxHolding } from './utils/record-selection.js';
+import { buildRiskRadar } from './utils/risk-radar.js';
 
 const graphRef = ref(null);
 const elements = ref([]);
@@ -13,6 +15,7 @@ const selectedItem = ref(null);
 const isLoaded = ref(false);
 const error = ref(null);
 const storageUsage = ref(0);
+const indexedDbUsage = ref(null);
 const loadingMessage = ref('請輸入關鍵字搜尋');
 const totalRecordsCount = ref(0);
 const visualizedRecordsCount = ref(0);
@@ -20,6 +23,8 @@ const searchKeyword = ref('');
 const hasSearched = ref(false);
 const isSearching = ref(false);
 const searchNotice = ref('');
+const personRiskTop = ref([]);
+const companyRiskTop = ref([]);
 
 const MAX_BASE_RECORDS = 2000;
 const MAX_GRAPH_RECORDS = 5000;
@@ -33,7 +38,11 @@ const fetchStorageUsage = async () => {
   if (navigator.storage && navigator.storage.estimate) {
     try {
       const estimate = await navigator.storage.estimate();
-      storageUsage.value = estimate.usage;
+      storageUsage.value = estimate.usage || 0;
+
+      // usageDetails is browser-dependent (Chromium supports it, Safari may not).
+      const indexed = estimate?.usageDetails?.indexedDB;
+      indexedDbUsage.value = typeof indexed === 'number' ? indexed : null;
     } catch (err) {
       console.error('Failed to estimate storage:', err);
     }
@@ -66,12 +75,13 @@ const runSearch = async () => {
     loadingMessage.value = '正在搜尋資料...';
 
     const db = await openDB();
-    const baseRecords = await getRecordsByKeyword(db, keyword, MAX_BASE_RECORDS);
+    const matchedRecords = await getRecordsByKeyword(db, keyword, MAX_BASE_RECORDS);
+    const baseRecords = selectPrimaryRecordsByMaxHolding(matchedRecords);
 
-    // One-hop expansion: if a matched manager has roles in other companies, include them too.
+    // One-hop expansion starts from each matched person's max-holding company record.
     let expandedRecords = [];
     if (baseRecords.length > 0) {
-      loadingMessage.value = '正在擴展關聯公司職務...';
+      loadingMessage.value = '正在以持股最大公司延伸關聯...';
       const matchedNames = baseRecords.map(record => record?.姓名).filter(Boolean);
       const remainingSlots = Math.max(0, MAX_GRAPH_RECORDS - baseRecords.length);
       expandedRecords = await getRecordsByNames(db, matchedNames, remainingSlots);
@@ -88,19 +98,25 @@ const runSearch = async () => {
     visualizedRecordsCount.value = records.length;
     elements.value = transformRecordsToElements(records);
 
+    const radar = buildRiskRadar(records);
+    personRiskTop.value = radar.personRiskTop;
+    companyRiskTop.value = radar.companyRiskTop;
+
     if (records.length === 0) {
       searchNotice.value = '查無資料，請更換關鍵字再試一次。';
     } else if (records.length >= MAX_GRAPH_RECORDS) {
-      searchNotice.value = `已載入上限 ${MAX_GRAPH_RECORDS} 筆（含跨公司延伸），請輸入更精準關鍵字。`;
+      searchNotice.value = `已載入上限 ${MAX_GRAPH_RECORDS} 筆（含持股主公司外延），請輸入更精準關鍵字。`;
     } else {
       const expandedCount = Math.max(0, records.length - baseRecords.length);
-      searchNotice.value = `已載入 ${records.length} 筆（關鍵字命中 ${baseRecords.length} 筆，跨公司延伸 ${expandedCount} 筆）。`;
+      searchNotice.value = `已載入 ${records.length} 筆（持股主公司 ${baseRecords.length} 人，外延 ${expandedCount} 筆）。`;
     }
 
     isLoaded.value = true;
   } catch (err) {
     console.error('Failed to search data:', err);
     error.value = err.message;
+    personRiskTop.value = [];
+    companyRiskTop.value = [];
   } finally {
     isSearching.value = false;
   }
@@ -131,9 +147,6 @@ const handleClearDatabase = async () => {
   try {
     const db = await openDB();
     await clearDatabase(db);
-    
-    // Reopen database to reinitialize it
-    const newDb = await openDB();
     
     // Reset page state
     elements.value = [];
@@ -193,7 +206,7 @@ const handleNodeSelected = (data) => {
   }
   selectedId.value = data.id;
   selectedItem.value = {
-    type: 'Node',
+    itemKind: 'node',
     ...data
   };
 };
@@ -206,7 +219,7 @@ const handleEdgeSelected = (data) => {
   }
   selectedId.value = data.id;
   selectedItem.value = {
-    type: 'Edge',
+    itemKind: 'edge',
     ...data
   };
 };
@@ -214,6 +227,46 @@ const handleEdgeSelected = (data) => {
 const resetSelection = () => {
   selectedId.value = null;
   selectedItem.value = null;
+};
+
+const setSelectionById = (nodeId) => {
+  if (!nodeId) {
+    resetSelection();
+    return;
+  }
+
+  const element = elements.value.find((item) => item?.data?.id === nodeId);
+  if (!element || !element.data) {
+    selectedId.value = nodeId;
+    selectedItem.value = null;
+    return;
+  }
+
+  selectedId.value = nodeId;
+
+  if (element.data.source && element.data.target) {
+    selectedItem.value = {
+      itemKind: 'edge',
+      ...element.data
+    };
+    return;
+  }
+
+  selectedItem.value = {
+    itemKind: 'node',
+    ...element.data
+  };
+};
+
+const formatRiskLevel = (level) => {
+  if (level === 'high') return '高';
+  if (level === 'medium-high') return '中高';
+  if (level === 'medium') return '中';
+  return '低';
+};
+
+const focusRiskNode = (nodeId) => {
+  setSelectionById(nodeId);
 };
 
 const runLayout = () => {
@@ -296,12 +349,24 @@ const handleSearchKeydown = async (event) => {
 
           <div class="system-status">
             <div class="status-row">
-              <span class="label">IndexedDB 容量:</span>
+              <span class="label">網站儲存總用量:</span>
               <span class="value">{{ (storageUsage / (1024 * 1024)).toFixed(2) }} MB</span>
+            </div>
+            <div class="status-row" v-if="indexedDbUsage !== null">
+              <span class="label">IndexedDB 估算用量:</span>
+              <span class="value">{{ (indexedDbUsage / (1024 * 1024)).toFixed(2) }} MB</span>
+            </div>
+            <div class="status-row" v-else>
+              <span class="label">IndexedDB 估算用量:</span>
+              <span class="value">目前瀏覽器未提供細項</span>
             </div>
             <div class="status-row">
               <span class="label">資料總筆數:</span>
               <span class="value">{{ totalRecordsCount }}</span>
+            </div>
+            <div class="status-row" v-if="totalRecordsCount === 0">
+              <span class="label">清除狀態:</span>
+              <span class="value">資料已清空；總用量可能包含其他快取</span>
             </div>
             <div class="status-row">
               <span class="label">目前圖形載入:</span>
@@ -314,24 +379,39 @@ const handleSearchKeydown = async (event) => {
           </div>
 
           <div v-if="selectedItem" class="detail-card">
-            <h3>{{ selectedItem.type }} 詳情</h3>
+            <h3>{{ selectedItem.itemKind === 'node' ? 'Node' : 'Edge' }} 詳情</h3>
             <div class="detail-row">
               <span class="label">ID:</span>
               <span class="value">{{ selectedItem.id }}</span>
             </div>
             
-            <template v-if="selectedItem.type === 'Node'">
+            <template v-if="selectedItem.itemKind === 'node'">
               <div v-if="selectedItem.type === 'company'" class="detail-row">
                 <span class="label">公司代號:</span>
                 <span class="value">{{ selectedItem.companyCode }}</span>
+              </div>
+              <div v-else-if="selectedItem.type === 'person'" class="detail-row">
+                <span class="label">姓名:</span>
+                <span class="value">{{ selectedItem.name || selectedItem.label }}</span>
               </div>
               <div class="detail-row">
                 <span class="label">名稱:</span>
                 <span class="value">{{ selectedItem.label }}</span>
               </div>
+
+              <template v-if="selectedItem.type === 'person'">
+                <div class="detail-row">
+                  <span class="label">持股股數 (最大):</span>
+                  <span class="value">{{ selectedItem.holdingSharesText || '0' }}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="label">職稱:</span>
+                  <span class="value">{{ selectedItem.titleText || '無' }}</span>
+                </div>
+              </template>
             </template>
 
-            <template v-else-if="selectedItem.type === 'Edge'">
+            <template v-else-if="selectedItem.itemKind === 'edge'">
               <div class="detail-row">
                 <span class="label">職稱:</span>
                 <span class="value">{{ selectedItem.title }}</span>
@@ -340,6 +420,55 @@ const handleSearchKeydown = async (event) => {
           </div>
           <div v-else class="empty-state">
             <p>請點擊圖形中的節點或邊以查看詳情</p>
+          </div>
+
+          <div class="risk-radar-panel">
+            <h3>風險雷達（搜尋範圍）</h3>
+
+            <div class="risk-section">
+              <div class="risk-title">人物風險 Top 10</div>
+              <ul v-if="personRiskTop.length > 0" class="risk-list">
+                <li
+                  v-for="person in personRiskTop"
+                  :key="person.id"
+                  class="risk-item"
+                  @click="focusRiskNode(person.id)"
+                >
+                  <div class="risk-head">
+                    <span class="risk-name">{{ person.name }}</span>
+                    <span class="risk-score">{{ person.score }}</span>
+                  </div>
+                  <div class="risk-meta">
+                    <span>等級: {{ formatRiskLevel(person.level) }}</span>
+                    <span>關聯公司: {{ person.companyCount }}</span>
+                    <span>設質比: {{ person.pledgeRatio }}%</span>
+                  </div>
+                </li>
+              </ul>
+              <p v-else class="risk-empty">尚無可計算資料</p>
+            </div>
+
+            <div class="risk-section">
+              <div class="risk-title">公司風險 Top 10</div>
+              <ul v-if="companyRiskTop.length > 0" class="risk-list">
+                <li
+                  v-for="company in companyRiskTop"
+                  :key="company.id"
+                  class="risk-item"
+                  @click="focusRiskNode(company.id)"
+                >
+                  <div class="risk-head">
+                    <span class="risk-name">{{ company.companyName }} ({{ company.companyCode }})</span>
+                    <span class="risk-score">{{ company.score }}</span>
+                  </div>
+                  <div class="risk-meta">
+                    <span>等級: {{ formatRiskLevel(company.level) }}</span>
+                    <span>關聯人物: {{ company.personCount }}</span>
+                  </div>
+                </li>
+              </ul>
+              <p v-else class="risk-empty">尚無可計算資料</p>
+            </div>
           </div>
         </div>
       </aside>
@@ -427,19 +556,25 @@ body, html {
   flex: 1;
   display: flex;
   overflow: hidden;
+  min-width: 0;
 }
 
 .graph-area {
   flex: 1;
   position: relative;
+  min-width: 0;
 }
 
 .info-panel {
-  width: 300px;
+  width: clamp(260px, 26vw, 360px);
+  flex: 0 0 clamp(260px, 26vw, 360px);
+  min-width: 260px;
   background: #fff;
   border-left: 1px solid #ddd;
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .panel-header {
@@ -452,6 +587,9 @@ body, html {
 .panel-content {
   padding: 15px;
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .system-status {
@@ -567,6 +705,82 @@ body, html {
   color: #999;
   text-align: center;
   margin-top: 50px;
+}
+
+.risk-radar-panel {
+  margin-bottom: 16px;
+  border: 1px solid #e6e6e6;
+  border-radius: 6px;
+  padding: 12px;
+  background: #fbfcfd;
+}
+
+.risk-radar-panel h3 {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+}
+
+.risk-section {
+  margin-bottom: 10px;
+}
+
+.risk-title {
+  font-size: 0.82rem;
+  color: #555;
+  margin-bottom: 6px;
+}
+
+.risk-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.risk-item {
+  border: 1px solid #ececec;
+  border-radius: 6px;
+  padding: 8px;
+  cursor: pointer;
+  background: #fff;
+}
+
+.risk-item:hover {
+  border-color: #b9d8d6;
+  background: #f4fbfb;
+}
+
+.risk-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.risk-name {
+  font-size: 0.84rem;
+  color: #333;
+}
+
+.risk-score {
+  font-weight: 700;
+  color: #0f766e;
+}
+
+.risk-meta {
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: #666;
+}
+
+.risk-empty {
+  margin: 0;
+  color: #8b8b8b;
+  font-size: 0.8rem;
 }
 
 .error-overlay, .loading-overlay {

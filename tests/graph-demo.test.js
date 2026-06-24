@@ -68,7 +68,7 @@ describe('Graph Transformation Tests', () => {
     const elements = transformRecordsToElements(mockRecords);
     const edge1 = elements.find(el => el.data.id === 'e1');
     
-    expect(edge1.data.source).toBe('person_p1');
+    expect(edge1.data.source).toBe('person_張安平');
     expect(edge1.data.target).toBe('company_1101');
     expect(edge1.data.title).toBe('董事長');
   });
@@ -84,5 +84,70 @@ describe('Graph Transformation Tests', () => {
     
     // Total elements: 5 nodes + 4 edges = 9
     expect(uniqueIds.size).toBe(9);
+  });
+
+  it('should merge same person across companies even with legacy personNodeKey format', () => {
+    const legacyRecords = [
+      {
+        edgeKey: 'e1',
+        personNodeKey: '張安平|1101',
+        公司代號: '1101',
+        公司名稱: '台泥',
+        姓名: '張安平',
+        職稱: '董事長'
+      },
+      {
+        edgeKey: 'e2',
+        personNodeKey: '張安平|2330',
+        公司代號: '2330',
+        公司名稱: '台積電',
+        姓名: '張安平',
+        職稱: '顧問'
+      }
+    ];
+
+    const elements = transformRecordsToElements(legacyRecords);
+    const personNodes = elements.filter(el => el.data.type === 'person');
+    const companyNodes = elements.filter(el => el.data.type === 'company');
+    const edges = elements.filter(el => el.data.source && el.data.target);
+
+    expect(personNodes).toHaveLength(1);
+    expect(personNodes[0].data.id).toBe('person_張安平');
+    expect(companyNodes).toHaveLength(2);
+    expect(edges).toHaveLength(2);
+  });
+
+  it('should include person max holding shares and merged titles for detail panel', () => {
+    const records = [
+      {
+        edgeKey: 'e1',
+        personNodeKey: '張安平',
+        公司代號: '1101',
+        公司名稱: '台泥',
+        姓名: '張安平',
+        職稱: '董事長',
+        目前持股: '1,200'
+      },
+      {
+        edgeKey: 'e2',
+        personNodeKey: '張安平',
+        公司代號: '2330',
+        公司名稱: '台積電',
+        姓名: '張安平',
+        職稱: '顧問',
+        目前持股: '9,800'
+      }
+    ];
+
+    const elements = transformRecordsToElements(records);
+    const personNode = elements.find(el => el.data.id === 'person_張安平');
+
+    expect(personNode).toBeDefined();
+    expect(personNode.data.holdingShares).toBe(9800);
+    expect(personNode.data.holdingSharesText).toBe('9,800');
+    expect(personNode.data.titles).toContain('董事長');
+    expect(personNode.data.titles).toContain('顧問');
+    expect(personNode.data.titleText).toContain('董事長');
+    expect(personNode.data.titleText).toContain('顧問');
   });
 });

@@ -56,7 +56,7 @@ describe('Parser and Cleaner Tests', () => {
       expect(record.職稱).toBe('董事長之法人代表人');
       expect(record.資料年月).toBe('11504');
       expect(record.edgeKey).toBe('張安平|1101|董事長之法人代表人');
-      expect(record.personNodeKey).toBe('張安平|1101');
+      expect(record.personNodeKey).toBe('張安平');
       expect(record.sourceType).toBe('上市');
       expect(record.isRepresentative).toBe(true);
       expect(record.isPrincipal).toBe(false);

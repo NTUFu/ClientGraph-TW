@@ -40,12 +40,11 @@ export function generateEdgeKey(name, companyCode, title) {
 
 /**
  * Computes deterministic graph-layer key for a person node.
- * personNodeKey = normalize(姓名) + | + normalize(公司代號)
+ * personNodeKey = normalize(姓名)
  *
  * @param {string} name - Name (姓名)
- * @param {string} companyCode - Company Code (公司代號)
  * @returns {string} The unique personNodeKey
  */
-export function generatePersonNodeKey(name, companyCode) {
-  return `${normalize(name)}|${normalize(companyCode)}`;
+export function generatePersonNodeKey(name) {
+  return normalize(name);
 }

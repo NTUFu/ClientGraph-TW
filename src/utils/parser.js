@@ -132,7 +132,7 @@ export function* cleanAndStandardizeGenerator(rawRecordsIterable, sourceType = '
     }
     
     const edgeKey = generateEdgeKey(name, companyCode, title);
-    const personNodeKey = generatePersonNodeKey(name, companyCode);
+    const personNodeKey = generatePersonNodeKey(name);
     const companyName = normalize(raw['公司名稱']);
     
     const searchTerms = [name, companyCode, companyName, title].filter(Boolean);

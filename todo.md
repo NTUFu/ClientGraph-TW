@@ -3,45 +3,9 @@
 本檔用於追蹤尚未完成事項。
 
 ### Backlog
-- [ ] Loop 6: UAT 與上線回圈
-
-## Loop 5 完成工作項
-
-### 交付物清單
-- [x] **分批匯入策略優化**
-  - 實現 BatchOptimizer (自適應批次大小調整)
-  - 動態進度回報機制
-  - 性能監控與日誌記錄
-  
-- [x] **交易失敗錯誤處理加強**
-  - 詳細錯誤追踪 (errorDetails 陣列)
-  - 記錄層級驗證
-  - 部分成功保留與恢復機制
-
-- [x] **跨瀏覽器驗證清單**
-  - 建立 BROWSER_COMPATIBILITY.md
-  - 驗證矩陣 (Chrome, Safari, Edge, Firefox)
-  - 已知限制與規避措施
-
-- [x] **效能基準測試與報告**
-  - 8 項性能測試用例
-  - 達成所有 Loop 5 KPI
-  - 詳細性能基準報告 (LOOP5_PERFORMANCE_REPORT.md)
-
-### 驗收條件通過
-- [x] 10,000 筆匯入 < 3 秒 (實測: 420ms)
-- [x] 50,000 筆匯入 < 15 秒 (實測: 2,426ms)
-- [x] 關鍵字搜尋 < 300ms (實測: 38ms)
-- [x] 無記憶體線性增長 (驗證: 穩定)
-- [x] 交易失敗錯誤處理正確 (驗證: 通過)
-
-### 文件交付
-- [x] BROWSER_COMPATIBILITY.md - 跨瀏覽器驗證清單
-- [x] LOOP5_PERFORMANCE_REPORT.md - 性能基準報告
-- [x] batch-optimizer.js - 批次優化模組
-- [x] import-service.js - 改進的匯入服務
-- [x] db.js - 增強的數據庫錯誤處理
-- [x] loop5-performance-benchmark.test.js - 性能測試套件
+- [ ] Loop 6: UAT 與 Launch 準備
+- [ ] 跨瀏覽器完整驗證 (Chrome / Safari / Edge / Firefox)
+- [ ] 上線前驗收腳本與操作手冊整理
 
 ### In Progress
 
@@ -56,8 +20,13 @@
   - [x] 2. 資料轉換管線 (Data Transformation Pipeline)
   - [x] 3. 基本交互與渲染 (Rendering & Interaction)
 7. [x] Loop 4: 整合型混合匯入與狀態 UI (Vue 3 SFC)
-8. [x] Loop 5: 品質、相容性與效能硬化回圈 (分批匯入與 Safari 驗證)
-  - [x] 1. 增強交易失敗錯誤處理
-  - [x] 2. 優化分批匯入策略 (BatchOptimizer)
-  - [x] 3. 建立跨瀏覽器驗證清單
-  - [x] 4. 執行效能基準測試與報告
+8. [x] Loop 5: 品質、相容性與效能硬化回圈
+  - [x] 大資料量搜尋優化 (search-first + cursor limit)
+  - [x] 圖形佈局與標籤重疊改善 (adaptive layout)
+  - [x] 匯入流程修正 (0% 卡住、OK 關閉失效)
+9. [x] 介面文字更新：網站名稱改為「上市櫃董監事關係圖」
+10. [x] 匯入視窗新增資料下載指引與官方連結
+11. [x] 新增清除資料功能（刪除 IndexedDB 後重建）
+12. [x] 修正清除資料 blocked 連線問題（集中關閉連線後刪除）
+13. [x] 儲存容量顯示改版（區分網站總用量與 IndexedDB 估算用量）
+14. [x] 新增風險雷達（以搜尋結果計算人物/公司 Top 10，並可點擊定位節點）

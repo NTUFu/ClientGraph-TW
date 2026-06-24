@@ -5,6 +5,25 @@
 
 import { normalize } from './keys.js';
 
+const DB_NAME = 'ClientGraphTW';
+const activeConnections = new Set();
+
+function closeActiveConnections(extraDb = null) {
+  if (extraDb) {
+    activeConnections.add(extraDb);
+  }
+
+  for (const connection of activeConnections) {
+    try {
+      connection.close();
+    } catch (err) {
+      // Ignore close errors during teardown.
+    }
+  }
+
+  activeConnections.clear();
+}
+
 /**
  * Compares two records to check if any business fields differ.
  * 
@@ -42,7 +61,7 @@ export function areRecordsDifferent(a, b) {
  * @param {number} version - Database version.
  * @returns {Promise<IDBDatabase>} Opened DB instance.
  */
-export function openDB(dbName = 'ClientGraphTW', version = 1) {
+export function openDB(dbName = DB_NAME, version = 1) {
   return new Promise((resolve, reject) => {
     // Check if running in a support environment (Node tests without window/self)
     const idb = typeof indexedDB !== 'undefined' ? indexedDB : (typeof globalThis !== 'undefined' ? globalThis.indexedDB : null);
@@ -76,7 +95,16 @@ export function openDB(dbName = 'ClientGraphTW', version = 1) {
     };
     
     request.onsuccess = (event) => {
-      resolve(event.target.result);
+      const db = event.target.result;
+
+      // Auto-close stale connections when a version change happens.
+      db.onversionchange = () => {
+        activeConnections.delete(db);
+        db.close();
+      };
+
+      activeConnections.add(db);
+      resolve(db);
     };
     
     request.onerror = (event) => {
@@ -548,8 +576,8 @@ export async function upsertRecords(db, records, chunkSize = 500, onChunkComplet
 export function clearDatabase(db) {
   return new Promise((resolve, reject) => {
     try {
-      // Close the existing connection first
-      db.close();
+      // Close all known open connections before deleting DB.
+      closeActiveConnections(db);
       
       // Delete the entire database to reclaim storage space
       const idb = typeof indexedDB !== 'undefined' ? indexedDB : (typeof globalThis !== 'undefined' ? globalThis.indexedDB : null);
@@ -558,7 +586,7 @@ export function clearDatabase(db) {
         return;
       }
       
-      const deleteRequest = idb.deleteDatabase('ClientGraphTW');
+      const deleteRequest = idb.deleteDatabase(DB_NAME);
       
       deleteRequest.onsuccess = () => {
         resolve();
@@ -569,7 +597,7 @@ export function clearDatabase(db) {
       };
       
       deleteRequest.onblocked = () => {
-        console.warn('Delete database blocked - other connections may still be open');
+        reject(new Error('Delete database blocked by another open tab or connection.'));
       };
     } catch (err) {
       reject(err);

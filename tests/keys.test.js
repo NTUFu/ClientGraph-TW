@@ -33,12 +33,12 @@ describe('Keys Utility Tests', () => {
   });
 
   describe('generatePersonNodeKey()', () => {
-    it('should separate same name in different companies', () => {
-      const keyA = generatePersonNodeKey('張安平', '1101');
-      const keyB = generatePersonNodeKey('張安平', '2330');
-      expect(keyA).toBe('張安平|1101');
-      expect(keyB).toBe('張安平|2330');
-      expect(keyA).not.toBe(keyB);
+    it('should merge same name across different companies', () => {
+      const keyA = generatePersonNodeKey('張安平');
+      const keyB = generatePersonNodeKey(' 張安平 ');
+      expect(keyA).toBe('張安平');
+      expect(keyB).toBe('張安平');
+      expect(keyA).toBe(keyB);
     });
   });
 });
