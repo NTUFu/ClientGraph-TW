@@ -322,6 +322,80 @@ export async function getRecordsByNames(db, names, limit = 2000) {
 }
 
 /**
+ * Retrieves records by exact company codes with an upper limit.
+ * Useful for graph drill-down from a selected company node.
+ *
+ * @param {IDBDatabase} db - Opened DB instance.
+ * @param {Array<string>} companyCodes - Company codes to query.
+ * @param {number} limit - Max number of records to return.
+ * @returns {Promise<Array<Object>>} Matched records up to limit.
+ */
+export async function getRecordsByCompanyCodes(db, companyCodes, limit = 3000) {
+  const normalizedCodes = Array.from(
+    new Set((Array.isArray(companyCodes) ? companyCodes : []).map(code => normalize(code)).filter(Boolean))
+  );
+
+  if (normalizedCodes.length === 0 || limit <= 0) {
+    return [];
+  }
+
+  const allResults = [];
+  const seenEdgeKeys = new Set();
+
+  for (const code of normalizedCodes) {
+    if (allResults.length >= limit) {
+      break;
+    }
+
+    const resultsForCode = await new Promise((resolve, reject) => {
+      try {
+        const tx = db.transaction(['relationships'], 'readonly');
+        const store = tx.objectStore('relationships');
+        const companyIndex = store.index('companyCode');
+        const request = companyIndex.openCursor(IDBKeyRange.only(code));
+        const results = [];
+
+        request.onsuccess = (event) => {
+          const cursor = event.target.result;
+          if (!cursor || allResults.length + results.length >= limit) {
+            resolve(results);
+            return;
+          }
+
+          const record = cursor.value;
+          if (record?.edgeKey && !seenEdgeKeys.has(record.edgeKey)) {
+            results.push(record);
+          }
+
+          cursor.continue();
+        };
+
+        request.onerror = () => {
+          reject(request.error || new Error('Failed to fetch records by company codes.'));
+        };
+      } catch (err) {
+        reject(err);
+      }
+    });
+
+    for (const record of resultsForCode) {
+      if (!record?.edgeKey || seenEdgeKeys.has(record.edgeKey)) {
+        continue;
+      }
+
+      seenEdgeKeys.add(record.edgeKey);
+      allResults.push(record);
+
+      if (allResults.length >= limit) {
+        break;
+      }
+    }
+  }
+
+  return allResults;
+}
+
+/**
  * Retrieves the global metadata record from the metadata store.
  * 
  * @param {IDBDatabase} db - Opened DB instance.

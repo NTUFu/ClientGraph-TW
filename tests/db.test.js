@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { openDB, getMetadata, upsertRecords } from '../src/utils/db.js';
+import { openDB, getMetadata, upsertRecords, getRecordsByCompanyCodes } from '../src/utils/db.js';
 
 describe('IndexedDB Core Tests', () => {
   let db;
@@ -157,5 +157,56 @@ describe('IndexedDB Core Tests', () => {
     meta = await getMetadata(db);
     expect(meta.importCount).toBe(2);
     expect(meta.sourceSummary['上市']).toBe(1);
+  });
+
+  it('should fetch 2330 relationship records by company code for drill-down', async () => {
+    const records = [
+      {
+        edgeKey: '張三|2330|董事',
+        personNodeKey: '張三',
+        normalizedSearch: '張三 2330 台積電 董事',
+        sourceType: '上市',
+        資料年月: '11504',
+        姓名: '張三',
+        公司代號: '2330',
+        公司名稱: '台積電',
+        職稱: '董事',
+        目前持股: '1000'
+      },
+      {
+        edgeKey: '李四|2330|獨立董事',
+        personNodeKey: '李四',
+        normalizedSearch: '李四 2330 台積電 獨立董事',
+        sourceType: '上市',
+        資料年月: '11504',
+        姓名: '李四',
+        公司代號: '2330',
+        公司名稱: '台積電',
+        職稱: '獨立董事',
+        目前持股: '2000'
+      },
+      {
+        edgeKey: '王五|2317|董事',
+        personNodeKey: '王五',
+        normalizedSearch: '王五 2317 鴻海 董事',
+        sourceType: '上市',
+        資料年月: '11504',
+        姓名: '王五',
+        公司代號: '2317',
+        公司名稱: '鴻海',
+        職稱: '董事',
+        目前持股: '1500'
+      }
+    ];
+
+    await upsertRecords(db, records);
+
+    const company2330Records = await getRecordsByCompanyCodes(db, ['2330'], 100);
+    expect(company2330Records).toHaveLength(2);
+    expect(company2330Records.every((record) => record.公司代號 === '2330')).toBe(true);
+
+    const limited = await getRecordsByCompanyCodes(db, ['2330'], 1);
+    expect(limited).toHaveLength(1);
+    expect(limited[0].公司代號).toBe('2330');
   });
 });
